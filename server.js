@@ -1,20 +1,19 @@
 import express from 'express';
-import { WebSocketServer } from 'ws';
 import cors from 'cors';
-import { createServer } from 'http';
 import axios from 'axios';
 
 const app = express();
-const server = createServer(app);
-const wss = new WebSocketServer({ server });
-
 app.use(cors());
 app.use(express.json());
 app.use(express.static('.'));
 
+// ========== API KEY ==========
 const TWELVE_DATA_API_KEY = '0be46e7fd9994be88453962882bfb522';
+
+// ========== ตัวแปรข้อมูล ==========
 let cache = { tf5m: [], tf15m: [], tf1h: [] };
 
+// ========== ดึงข้อมูลจาก Twelve Data ==========
 async function fetchCandles(symbol, interval, output = 100) {
   try {
     const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=${interval}&outputsize=${output}&apikey=${TWELVE_DATA_API_KEY}`;
@@ -29,11 +28,15 @@ async function fetchCandles(symbol, interval, output = 100) {
       })).reverse();
     }
     return [];
-  } catch(e) { return []; }
+  } catch(e) { 
+    console.log('Fetch error:', e.message);
+    return []; 
+  }
 }
 
+// ========== อัปเดตข้อมูลทุก TF ==========
 async function updateData() {
-  console.log('Updating data...');
+  console.log('🔄 Updating data...');
   const [tf5m, tf15m, tf1h] = await Promise.all([
     fetchCandles('XAU/USD', '5min', 100),
     fetchCandles('XAU/USD', '15min', 80),
@@ -42,9 +45,10 @@ async function updateData() {
   if (tf5m.length) cache.tf5m = tf5m;
   if (tf15m.length) cache.tf15m = tf15m;
   if (tf1h.length) cache.tf1h = tf1h;
-  console.log(`5m:${cache.tf5m.length} 15m:${cache.tf15m.length} 1h:${cache.tf1h.length}`);
+  console.log(`✅ 5m:${cache.tf5m.length} 15m:${cache.tf15m.length} 1h:${cache.tf1h.length}`);
 }
 
+// ========== SMC Functions ==========
 function getBias(candles) {
   if (!candles?.length) return 0;
   const ema20 = candles.slice(-20).reduce((s, c) => s + c.close, 0) / 20;
@@ -107,36 +111,46 @@ function calculateScore(bias5m, bias15m, bias1h, wick, rsi) {
   return { action, confidence: Math.min(98, conf), bull, bear };
 }
 
-wss.on('connection', (ws) => {
-  console.log('Client connected');
-  const interval = setInterval(async () => {
-    if (!cache.tf5m.length) return;
-    const latest = cache.tf5m[cache.tf5m.length-1];
-    const atr = calcATR(cache.tf5m);
-    const wick = detectWick(latest, atr);
-    const rsi = calcRSI(cache.tf5m.slice(-30).map(c => c.close));
-    const score = calculateScore(getBias(cache.tf5m), getBias(cache.tf15m), getBias(cache.tf1h), wick, rsi);
-    ws.send(JSON.stringify({
-      price: latest.close,
-      rsi: Math.round(rsi),
-      bias: { tf5m: getBias(cache.tf5m), tf15m: getBias(cache.tf15m), tf1h: getBias(cache.tf1h) },
-      action: score.action,
-      confidence: score.confidence,
-      bullScore: score.bull,
-      bearScore: score.bear
-    }));
-  }, 5000);
-  ws.on('close', () => clearInterval(interval));
+// ========== API Endpoints ==========
+app.get('/api/stream', (req, res) => {
+  if (!cache.tf5m.length) {
+    return res.json({ price: 0, action: 'WAIT', confidence: 0 });
+  }
+  const latest = cache.tf5m[cache.tf5m.length-1];
+  const atr = calcATR(cache.tf5m);
+  const wick = detectWick(latest, atr);
+  const rsi = calcRSI(cache.tf5m.slice(-30).map(c => c.close));
+  const score = calculateScore(getBias(cache.tf5m), getBias(cache.tf15m), getBias(cache.tf1h), wick, rsi);
+  
+  res.json({
+    price: latest.close,
+    rsi: Math.round(rsi),
+    bias: {
+      tf5m: getBias(cache.tf5m),
+      tf15m: getBias(cache.tf15m),
+      tf1h: getBias(cache.tf1h)
+    },
+    action: score.action,
+    confidence: score.confidence,
+    bullScore: score.bull,
+    bearScore: score.bear
+  });
 });
 
-app.get('/api/signals', (req, res) => res.json([]));
+app.get('/api/signals', (req, res) => {
+  res.json([]); // ไว้เพิ่ม database ทีหลัง
+});
+
 app.post('/api/chat', (req, res) => {
-  res.json({ reply: `AI: ${req.body.message} | Bias 1h: ${getBias(cache.tf1h) === 1 ? 'BULL' : 'BEAR'}` });
+  const bias1h = getBias(cache.tf1h);
+  const trend = bias1h === 1 ? 'BULLISH ▲' : bias1h === -1 ? 'BEARISH ▼' : 'NEUTRAL ●';
+  res.json({ reply: `🤖 AI: "${req.body.message}"\n\n📊 แนวโน้ม 1 ชั่วโมง: ${trend}\n💡 แนะนำ: รอสัญญาณ SMC บนกราฟ 5 นาที` });
 });
 
+// ========== START SERVER ==========
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, async () => {
-  console.log(`Server on port ${PORT}`);
+app.listen(PORT, async () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
   await updateData();
-  setInterval(updateData, 60000);
+  setInterval(updateData, 60000); // อัปเดตทุก 1 นาที
 });
