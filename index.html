@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -108,17 +109,6 @@
       padding-top: 12px;
       border-top: 1px solid #334155;
     }
-    .rsi-value {
-      font-size: 24px;
-      font-weight: bold;
-      text-align: center;
-    }
-    .footer-note {
-      text-align: center;
-      font-size: 10px;
-      color: #475569;
-      margin-top: 16px;
-    }
     .loading {
       text-align: center;
       color: #94a3b8;
@@ -158,7 +148,7 @@
   <div class="card">
     <h2 style="margin-bottom: 12px;">📋 ประวัติสัญญาณ AI</h2>
     <div class="signal-list" id="signals">
-      <div class="loading">กำลังเชื่อมต่อ WebSocket...</div>
+      <div class="loading">กำลังโหลดข้อมูล...</div>
     </div>
   </div>
 
@@ -167,10 +157,10 @@
     <button id="sendBtn">ส่ง</button>
   </div>
   <div id="chatReply" style="margin: 8px 12px 80px 12px;"></div>
-  <div class="footer-note">🔁 อัปเดตทุก 5 วินาที | วิเคราะห์ SMC + RSI Divergence + Multi-TF</div>
 
   <script>
     let signals = [];
+    let lastAction = '';
 
     function addSignal(action, price, confidence) {
       const time = new Date().toLocaleTimeString('th-TH');
@@ -195,90 +185,62 @@
       `).join('');
     }
 
-    // ========== WEBSOCKET (แก้ให้ใช้ Render.com ได้) ==========
-    let ws;
-    let reconnectAttempts = 0;
-    
-    function connectWebSocket() {
-      // ใช้ protocol อัตโนมัติ (wss:// สำหรับ https, ws:// สำหรับ http)
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
-      
-      console.log('🔄 Connecting to WebSocket:', wsUrl);
-      
-      ws = new WebSocket(wsUrl);
-      
-      ws.onopen = () => {
-        console.log('✅ WebSocket connected');
-        reconnectAttempts = 0;
-        document.getElementById('signals').innerHTML = '<div class="loading">รอสัญญาณ...</div>';
-      };
-      
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('📊 Data received:', data);
-          
-          // อัปเดตราคา
-          if (data.price) {
-            document.getElementById('price').innerHTML = `$${data.price.toFixed(2)}`;
-          }
-          
-          // อัปเดต Action
-          if (data.action) {
-            const actionEl = document.getElementById('action');
-            actionEl.innerHTML = `${data.action} (ความเชื่อมั่น ${data.confidence || 0}%)`;
-            actionEl.className = `action ${data.action === 'BUY' ? 'buy' : data.action === 'SELL' ? 'sell' : 'wait'}`;
-          }
-          
-          // อัปเดต Bias
-          if (data.bias) {
-            const bias1hEl = document.getElementById('bias1h');
-            const bias15mEl = document.getElementById('bias15m');
-            const bias5mEl = document.getElementById('bias5m');
-            
-            bias1hEl.innerHTML = data.bias.tf1h === 1 ? '▲ BULL' : data.bias.tf1h === -1 ? '▼ BEAR' : '● NEUTRAL';
-            bias1hEl.className = `bias-value ${data.bias.tf1h === 1 ? 'bull' : data.bias.tf1h === -1 ? 'bear' : 'neutral'}`;
-            
-            bias15mEl.innerHTML = data.bias.tf15m === 1 ? '▲ BULL' : data.bias.tf15m === -1 ? '▼ BEAR' : '● NEUTRAL';
-            bias15mEl.className = `bias-value ${data.bias.tf15m === 1 ? 'bull' : data.bias.tf15m === -1 ? 'bear' : 'neutral'}`;
-            
-            bias5mEl.innerHTML = data.bias.tf5m === 1 ? '▲ BULL' : data.bias.tf5m === -1 ? '▼ BEAR' : '● NEUTRAL';
-            bias5mEl.className = `bias-value ${data.bias.tf5m === 1 ? 'bull' : data.bias.tf5m === -1 ? 'bear' : 'neutral'}`;
-          }
-          
-          // อัปเดตคะแนน
-          if (data.rsi) document.getElementById('rsi').innerHTML = data.rsi;
-          if (data.bullScore !== undefined) document.getElementById('bullScore').innerHTML = data.bullScore;
-          if (data.bearScore !== undefined) document.getElementById('bearScore').innerHTML = data.bearScore;
-          
-          // บันทึกสัญญาณ
-          if (data.action && data.action !== 'WAIT' && data.price) {
-            addSignal(data.action, data.price, data.confidence || 50);
-          }
-        } catch(e) {
-          console.error('Error parsing WebSocket data:', e);
+    // ========== HTTP Polling (แทน WebSocket) ==========
+    async function fetchData() {
+      try {
+        const response = await fetch('/api/stream');
+        const data = await response.json();
+        
+        console.log('Data received:', data);
+        
+        // อัปเดตราคา
+        if (data.price) {
+          document.getElementById('price').innerHTML = `$${data.price.toFixed(2)}`;
         }
-      };
-      
-      ws.onerror = (error) => {
-        console.error('❌ WebSocket error:', error);
-        document.getElementById('signals').innerHTML = '<div class="loading">⚠️ WebSocket Error - กำลังลองเชื่อมใหม่...</div>';
-      };
-      
-      ws.onclose = () => {
-        console.log('🔌 WebSocket disconnected');
-        const reconnectDelay = Math.min(5000 * Math.pow(2, reconnectAttempts), 30000);
-        reconnectAttempts++;
         
-        document.getElementById('signals').innerHTML = `<div class="loading">⚠️ Disconnected - Reconnecting in ${reconnectDelay/1000}s...</div>`;
+        // อัปเดต Action
+        if (data.action) {
+          const actionEl = document.getElementById('action');
+          actionEl.innerHTML = `${data.action} (ความเชื่อมั่น ${data.confidence || 0}%)`;
+          actionEl.className = `action ${data.action === 'BUY' ? 'buy' : data.action === 'SELL' ? 'sell' : 'wait'}`;
+          
+          // บันทึกสัญญาณใหม่
+          if (data.action !== 'WAIT' && data.action !== lastAction && data.price) {
+            addSignal(data.action, data.price, data.confidence || 50);
+            lastAction = data.action;
+          }
+        }
         
-        setTimeout(connectWebSocket, reconnectDelay);
-      };
+        // อัปเดต Bias
+        if (data.bias) {
+          const bias1hEl = document.getElementById('bias1h');
+          const bias15mEl = document.getElementById('bias15m');
+          const bias5mEl = document.getElementById('bias5m');
+          
+          bias1hEl.innerHTML = data.bias.tf1h === 1 ? '▲ BULL' : data.bias.tf1h === -1 ? '▼ BEAR' : '● NEUTRAL';
+          bias1hEl.className = `bias-value ${data.bias.tf1h === 1 ? 'bull' : data.bias.tf1h === -1 ? 'bear' : 'neutral'}`;
+          
+          bias15mEl.innerHTML = data.bias.tf15m === 1 ? '▲ BULL' : data.bias.tf15m === -1 ? '▼ BEAR' : '● NEUTRAL';
+          bias15mEl.className = `bias-value ${data.bias.tf15m === 1 ? 'bull' : data.bias.tf15m === -1 ? 'bear' : 'neutral'}`;
+          
+          bias5mEl.innerHTML = data.bias.tf5m === 1 ? '▲ BULL' : data.bias.tf5m === -1 ? '▼ BEAR' : '● NEUTRAL';
+          bias5mEl.className = `bias-value ${data.bias.tf5m === 1 ? 'bull' : data.bias.tf5m === -1 ? 'bear' : 'neutral'}`;
+        }
+        
+        // อัปเดตคะแนน
+        if (data.rsi) document.getElementById('rsi').innerHTML = data.rsi;
+        if (data.bullScore !== undefined) document.getElementById('bullScore').innerHTML = data.bullScore;
+        if (data.bearScore !== undefined) document.getElementById('bearScore').innerHTML = data.bearScore;
+        
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        document.getElementById('signals').innerHTML = '<div class="loading">⚠️ กำลังเชื่อมต่อใหม่...</div>';
+      }
     }
     
-    // เริ่มการเชื่อมต่อ
-    connectWebSocket();
+    // โหลดข้อมูลทุก 3 วินาที
+    fetchData();
+    setInterval(fetchData, 3000);
 
     // โหลดประวัติสัญญาณเก่า
     fetch('/api/signals')
@@ -297,16 +259,14 @@
       .catch(err => console.error('Error fetching signals:', err));
 
     // AI Chat
-    const sendBtn = document.getElementById('sendBtn');
-    const chatInput = document.getElementById('chatInput');
-    const chatReply = document.getElementById('chatReply');
-    
-    sendBtn.onclick = async () => {
-      const msg = chatInput.value.trim();
+    document.getElementById('sendBtn').onclick = async () => {
+      const input = document.getElementById('chatInput');
+      const msg = input.value.trim();
       if (!msg) return;
-      chatInput.value = '';
+      input.value = '';
       
-      chatReply.innerHTML = '<div class="chat-reply">🤔 กำลังคิด...</div>';
+      const replyDiv = document.getElementById('chatReply');
+      replyDiv.innerHTML = '<div class="chat-reply">🤔 กำลังคิด...</div>';
       
       try {
         const res = await fetch('/api/chat', {
@@ -315,14 +275,14 @@
           body: JSON.stringify({ message: msg })
         });
         const data = await res.json();
-        chatReply.innerHTML = `<div class="chat-reply">💬 ${data.reply}</div>`;
+        replyDiv.innerHTML = `<div class="chat-reply">💬 ${data.reply}</div>`;
       } catch(e) {
-        chatReply.innerHTML = '<div class="chat-reply">❌ ไม่สามารถเชื่อมต่อ AI ได้</div>';
+        replyDiv.innerHTML = '<div class="chat-reply">❌ ไม่สามารถเชื่อมต่อ AI ได้</div>';
       }
     };
     
-    chatInput.onkeypress = (e) => {
-      if (e.key === 'Enter') sendBtn.onclick();
+    document.getElementById('chatInput').onkeypress = (e) => {
+      if (e.key === 'Enter') document.getElementById('sendBtn').onclick();
     };
   </script>
 </body>
