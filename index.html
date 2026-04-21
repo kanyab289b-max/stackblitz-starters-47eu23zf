@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>AI Trading SMC Pro - XAUUSD ทองคำ</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; 
+      background: #0a0f1e; 
+      color: #e2e8f0; 
+      padding: 16px; 
+      padding-bottom: 120px;
+    }
+    .card { 
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border-radius: 24px; 
+      padding: 20px; 
+      margin-bottom: 16px; 
+      box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+      border: 1px solid #334155;
+    }
+    .price { 
+      font-size: 36px; 
+      font-weight: bold; 
+      font-family: monospace;
+      color: #fbbf24;
+    }
+    .action { 
+      font-size: 28px; 
+      font-weight: bold; 
+      margin-top: 8px; 
+      padding: 12px;
+      border-radius: 16px;
+      text-align: center;
+    }
+    .buy { background: rgba(34,197,94,0.2); color: #4ade80; border: 1px solid #4ade80; }
+    .sell { background: rgba(239,68,68,0.2); color: #f87171; border: 1px solid #f87171; }
+    .wait { background: rgba(250,204,21,0.2); color: #facc15; border: 1px solid #facc15; }
+    .bias-container {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .bias-item {
+      text-align: center;
+      padding: 8px;
+      background: #0f172a;
+      border-radius: 12px;
+    }
+    .bias-label { font-size: 12px; color: #94a3b8; }
+    .bias-value { font-size: 20px; font-weight: bold; margin-top: 4px; }
+    .bull { color: #4ade80; }
+    .bear { color: #f87171; }
+    .neutral { color: #94a3b8; }
+    .signal-list { max-height: 300px; overflow-y: auto; }
+    .signal-item { 
+      border-bottom: 1px solid #334155; 
+      padding: 10px 0;
+      display: flex;
+      justify-content: space-between;
+    }
+    .chat-input { 
+      position: fixed; 
+      bottom: 0; 
+      left: 0; 
+      right: 0; 
+      background: #1e293b; 
+      padding: 12px; 
+      border-top: 1px solid #334155; 
+      display: flex; 
+      gap: 8px;
+      backdrop-filter: blur(10px);
+    }
+    .chat-input input { 
+      flex: 1; 
+      background: #0f172a; 
+      border: 1px solid #334155;
+      padding: 12px 16px; 
+      border-radius: 40px; 
+      color: white; 
+      outline: none; 
+    }
+    .chat-input button { 
+      background: #3b82f6; 
+      border: none; 
+      padding: 12px 24px; 
+      border-radius: 40px; 
+      color: white; 
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .chat-reply { 
+      margin-top: 8px; 
+      background: #0f172a; 
+      padding: 12px; 
+      border-radius: 16px; 
+      font-size: 14px;
+      border-left: 3px solid #3b82f6;
+    }
+    h1 { text-align: center; margin-bottom: 20px; color: #60a5fa; font-size: 24px; }
+    .score-panel {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #334155;
+    }
+    .rsi-value {
+      font-size: 24px;
+      font-weight: bold;
+      text-align: center;
+    }
+    .footer-note {
+      text-align: center;
+      font-size: 10px;
+      color: #475569;
+      margin-top: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🤖 AI Trading SMC Pro - XAUUSD (ทองคำ)</h1>
+  
+  <div class="card">
+    <div class="price" id="price">$---</div>
+    <div class="action" id="action">กำลังโหลด...</div>
+    
+    <div class="bias-container">
+      <div class="bias-item">
+        <div class="bias-label">1 ชั่วโมง (เทรนด์)</div>
+        <div class="bias-value" id="bias1h">-</div>
+      </div>
+      <div class="bias-item">
+        <div class="bias-label">15 นาที (โครงสร้าง)</div>
+        <div class="bias-value" id="bias15m">-</div>
+      </div>
+      <div class="bias-item">
+        <div class="bias-label">5 นาที (เข้า)</div>
+        <div class="bias-value" id="bias5m">-</div>
+      </div>
+    </div>
+    
+    <div class="score-panel">
+      <span>📊 RSI: <strong id="rsi">--</strong></span>
+      <span>🟢 แรงซื้อ: <strong id="bullScore">0</strong></span>
+      <span>🔴 แรงขาย: <strong id="bearScore">0</strong></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-bottom: 12px;">📋 ประวัติสัญญาณ AI</h2>
+    <div class="signal-list" id="signals">
+      <div class="signal-item">รอข้อมูล...</div>
+    </div>
+  </div>
+
+  <div class="chat-input">
+    <input type="text" id="chatInput" placeholder="💬 ถาม AI เช่น แนวโน้มตอนนี้?">
+    <button id="sendBtn">ส่ง</button>
+  </div>
+  <div id="chatReply" style="margin: 8px 12px 80px 12px;"></div>
+  <div class="footer-note">🔁 อัปเดตทุก 5 วินาที | วิเคราะห์ SMC + RSI Divergence + Multi-TF</div>
+
+  <script>
+    let signals = [];
+
+    function addSignal(action, price, confidence) {
+      const time = new Date().toLocaleTimeString('th-TH');
+      signals.unshift({ time, action, price, confidence });
+      if (signals.length > 20) signals.pop();
+      renderSignals();
+    }
+
+    function renderSignals() {
+      const container = document.getElementById('signals');
+      if (signals.length === 0) {
+        container.innerHTML = '<div class="signal-item">ยังไม่มีสัญญาณ</div>';
+        return;
+      }
+      container.innerHTML = signals.map(s => `
+        <div class="signal-item">
+          <span>🕐 ${s.time}</span>
+          <span style="color:${s.action === 'BUY' ? '#4ade80' : '#f87171'}; font-weight:bold;">${s.action}</span>
+          <span>💰 $${s.price.toFixed(2)}</span>
+          <span>🎯 ${s.confidence}%</span>
+        </div>
+      `).join('');
+    }
+
+    let ws;
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}`);
+      
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        // อัปเดตราคา
+        document.getElementById('price').innerHTML = `$${data.price.toFixed(2)}`;
+        
+        // อัปเดต Bias
+        const bias1hEl = document.getElementById('bias1h');
+        const bias15mEl = document.getElementById('bias15m');
+        const bias5mEl = document.getElementById('bias5m');
+        
+        bias1hEl.innerHTML = data.bias?.tf1h === 1 ? '▲ BULL' : data.bias?.tf1h === -1 ? '▼ BEAR' : '● NEUTRAL';
+        bias1hEl.className = `bias-value ${data.bias?.tf1h === 1 ? 'bull' : data.bias?.tf1h === -1 ? 'bear' : 'neutral'}`;
+        
+        bias15mEl.innerHTML = data.bias?.tf15m === 1 ? '▲ BULL' : data.bias?.tf15m === -1 ? '▼ BEAR' : '● NEUTRAL';
+        bias15mEl.className = `bias-value ${data.bias?.tf15m === 1 ? 'bull' : data.bias?.tf15m === -1 ? 'bear' : 'neutral'}`;
+        
+        bias5mEl.innerHTML = data.bias?.tf5m === 1 ? '▲ BULL' : data.bias?.tf5m === -1 ? '▼ BEAR' : '● NEUTRAL';
+        bias5mEl.className = `bias-value ${data.bias?.tf5m === 1 ? 'bull' : data.bias?.tf5m === -1 ? 'bear' : 'neutral'}`;
+        
+        // อัปเดต Action
+        const actionEl = document.getElementById('action');
+        actionEl.innerHTML = `${data.action} (ความเชื่อมั่น ${data.confidence}%)`;
+        actionEl.className = `action ${data.action === 'BUY' ? 'buy' : data.action === 'SELL' ? 'sell' : 'wait'}`;
+        
+        // อัปเดตคะแนน
+        document.getElementById('rsi').innerHTML = data.rsi || '--';
+        document.getElementById('bullScore').innerHTML = data.bullScore || 0;
+        document.getElementById('bearScore').innerHTML = data.bearScore || 0;
+        
+        // บันทึกสัญญาณ (เฉพาะ BUY/SELL)
+        if (data.action !== 'WAIT') {
+          addSignal(data.action, data.price, data.confidence);
+        }
+      };
+      
+      ws.onclose = () => {
+        setTimeout(connectWebSocket, 3000);
+      };
+    }
+    
+    connectWebSocket();
+
+    // โหลดประวัติสัญญาณเก่า
+    fetch('/api/signals')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.length) {
+          signals = data.map(s => ({
+            time: new Date(s.timestamp).toLocaleTimeString('th-TH'),
+            action: s.action,
+            price: s.price,
+            confidence: s.confidence
+          }));
+          renderSignals();
+        }
+      });
+
+    // AI Chat
+    document.getElementById('sendBtn').onclick = async () => {
+      const input = document.getElementById('chatInput');
+      const msg = input.value.trim();
+      if (!msg) return;
+      input.value = '';
+      
+      const replyDiv = document.getElementById('chatReply');
+      replyDiv.innerHTML = '<div class="chat-reply">🤔 กำลังคิด...</div>';
+      
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg })
+        });
+        const data = await res.json();
+        replyDiv.innerHTML = `<div class="chat-reply">💬 ${data.reply}</div>`;
+      } catch(e) {
+        replyDiv.innerHTML = '<div class="chat-reply">❌ ไม่สามารถเชื่อมต่อ AI ได้</div>';
+      }
+    };
+    
+    document.getElementById('chatInput').onkeypress = (e) => {
+      if (e.key === 'Enter') document.getElementById('sendBtn').onclick();
+    };
+  </script>
+</body>
+</html>

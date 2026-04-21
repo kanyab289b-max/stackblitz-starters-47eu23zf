@@ -1,0 +1,52 @@
+import express from 'express';
+import { WebSocketServer } from 'ws';
+import cors from 'cors';
+import { createServer } from 'http';
+import axios from 'axios';
+
+const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
+
+app.use(cors());
+app.use(express.json());
+
+// จำลอง SMC Analysis
+function analyzeSMC() {
+  const rand = Math.random();
+  if (rand > 0.7) return { action: 'BUY', confidence: 65 + Math.floor(Math.random()*25) };
+  if (rand < 0.3) return { action: 'SELL', confidence: 65 + Math.floor(Math.random()*25) };
+  return { action: 'WAIT', confidence: 50 };
+}
+
+async function getBTC() {
+  try {
+    const res = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT');
+    return parseFloat(res.data.price);
+  } catch(e) { return 50000; }
+}
+
+// WebSocket ส่งข้อมูล实时
+wss.on('connection', async (ws) => {
+  console.log('✅ Client connected');
+  const interval = setInterval(async () => {
+    const price = await getBTC();
+    const analysis = analyzeSMC();
+    ws.send(JSON.stringify({ price, ...analysis, timestamp: Date.now() }));
+  }, 3000);
+  ws.on('close', () => clearInterval(interval));
+});
+
+// API สำหรับ Frontend
+app.get('/api/price', async (req, res) => {
+  const price = await getBTC();
+  res.json({ price });
+});
+
+app.post('/api/chat', (req, res) => {
+  const { message } = req.body;
+  res.json({ reply: `🤖 AI: "${message}" → แนวโน้มตอนนี้อยู่ในโซน Demand แนะนำรอสัญญาณ BUY ที่ชัดเจน` });
+});
+
+const PORT = 3000;
+server.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));

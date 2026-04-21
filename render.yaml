@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: ai-trading-smc
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: TWELVE_DATA_API_KEY
+        value: 0be46e7fd9994be88453962882bfb522
