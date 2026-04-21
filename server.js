@@ -6,16 +6,13 @@ import axios from 'axios';
 
 const app = express();
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server });
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static('.'));
 
-// ========== API KEY ==========
 const TWELVE_DATA_API_KEY = '0be46e7fd9994be88453962882bfb522';
-
-// ========== ตัวแปรข้อมูล ==========
 let cache = { tf5m: [], tf15m: [], tf1h: [] };
 
 async function fetchCandles(symbol, interval, output = 100) {
@@ -32,14 +29,11 @@ async function fetchCandles(symbol, interval, output = 100) {
       })).reverse();
     }
     return [];
-  } catch(e) { 
-    console.log('Fetch error:', e.message);
-    return []; 
-  }
+  } catch(e) { return []; }
 }
 
 async function updateData() {
-  console.log('🔄 Updating data...');
+  console.log('Updating data...');
   const [tf5m, tf15m, tf1h] = await Promise.all([
     fetchCandles('XAU/USD', '5min', 100),
     fetchCandles('XAU/USD', '15min', 80),
@@ -48,7 +42,7 @@ async function updateData() {
   if (tf5m.length) cache.tf5m = tf5m;
   if (tf15m.length) cache.tf15m = tf15m;
   if (tf1h.length) cache.tf1h = tf1h;
-  console.log(`✅ 5m:${cache.tf5m.length} 15m:${cache.tf15m.length} 1h:${cache.tf1h.length}`);
+  console.log(`5m:${cache.tf5m.length} 15m:${cache.tf15m.length} 1h:${cache.tf1h.length}`);
 }
 
 function getBias(candles) {
@@ -113,9 +107,8 @@ function calculateScore(bias5m, bias15m, bias1h, wick, rsi) {
   return { action, confidence: Math.min(98, conf), bull, bear };
 }
 
-wss.on('connection', async (ws) => {
-  console.log('✅ WebSocket client connected');
-  let lastAction = '';
+wss.on('connection', (ws) => {
+  console.log('Client connected');
   const interval = setInterval(async () => {
     if (!cache.tf5m.length) return;
     const latest = cache.tf5m[cache.tf5m.length-1];
@@ -123,36 +116,27 @@ wss.on('connection', async (ws) => {
     const wick = detectWick(latest, atr);
     const rsi = calcRSI(cache.tf5m.slice(-30).map(c => c.close));
     const score = calculateScore(getBias(cache.tf5m), getBias(cache.tf15m), getBias(cache.tf1h), wick, rsi);
-    
     ws.send(JSON.stringify({
       price: latest.close,
       rsi: Math.round(rsi),
-      bias: {
-        tf5m: getBias(cache.tf5m),
-        tf15m: getBias(cache.tf15m),
-        tf1h: getBias(cache.tf1h)
-      },
+      bias: { tf5m: getBias(cache.tf5m), tf15m: getBias(cache.tf15m), tf1h: getBias(cache.tf1h) },
       action: score.action,
       confidence: score.confidence,
       bullScore: score.bull,
-      bearScore: score.bear,
-      timestamp: Date.now()
+      bearScore: score.bear
     }));
   }, 5000);
   ws.on('close', () => clearInterval(interval));
 });
 
-app.get('/api/signals', (req, res) => {
-  res.json([]);
-});
-
+app.get('/api/signals', (req, res) => res.json([]));
 app.post('/api/chat', (req, res) => {
-  res.json({ reply: `🤖 AI: ${req.body.message}\n\nแนวโน้ม 1h: ${getBias(cache.tf1h) === 1 ? 'BULL' : getBias(cache.tf1h) === -1 ? 'BEAR' : 'NEUTRAL'}` });
+  res.json({ reply: `AI: ${req.body.message} | Bias 1h: ${getBias(cache.tf1h) === 1 ? 'BULL' : 'BEAR'}` });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', async () => {
-  console.log(`🚀 Server on port ${PORT}`);
+server.listen(PORT, async () => {
+  console.log(`Server on port ${PORT}`);
   await updateData();
   setInterval(updateData, 60000);
 });
