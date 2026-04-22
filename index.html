@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>🤖 AI Trading SMC Pro - XAUUSD (ทองคำ)</title>
+  <title>🤖 AI Trading SMC Pro - XAUUSDT (ทองคำ)</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
     body{font-family:system-ui;background:#0a0f1e;color:#e2e8f0;padding:16px;padding-bottom:120px;}
@@ -30,14 +30,14 @@
   </style>
 </head>
 <body>
-  <h1>🤖 AI Trading SMC Pro - XAUUSD (ทองคำ)</h1>
+  <h1>🤖 AI Trading SMC Pro - XAUUSDT (ทองคำ) โดย Binance + DeepSeek</h1>
   <div class="card">
     <div class="price" id="price">$---</div>
-    <div class="action wait" id="action">กำลังโหลดข้อมูลจริง...</div>
+    <div class="action wait" id="action">กำลังโหลด...</div>
     <div class="bias-container">
-      <div class="bias-item"><div class="bias-label">1 ชั่วโมง</div><div class="bias-value neutral" id="bias1h">-</div></div>
-      <div class="bias-item"><div class="bias-label">15 นาที</div><div class="bias-value neutral" id="bias15m">-</div></div>
-      <div class="bias-item"><div class="bias-label">5 นาที</div><div class="bias-value neutral" id="bias5m">-</div></div>
+      <div class="bias-item"><div class="bias-label">1 ชั่วโมง (เทรนด์)</div><div class="bias-value neutral" id="bias1h">-</div></div>
+      <div class="bias-item"><div class="bias-label">15 นาที (โครงสร้าง)</div><div class="bias-value neutral" id="bias15m">-</div></div>
+      <div class="bias-item"><div class="bias-label">5 นาที (เข้า)</div><div class="bias-value neutral" id="bias5m">-</div></div>
     </div>
     <div class="score-panel">
       <span>📊 RSI: <strong id="rsi">--</strong></span>
@@ -45,211 +45,139 @@
       <span>🔴 แรงขาย: <strong id="bearScore">0</strong></span>
     </div>
   </div>
-  <div class="card"><h2>📋 ประวัติสัญญาณ AI</h2><div class="signal-list" id="signals"><div class="loading">กำลังโหลด...</div></div></div>
+  <div class="card"><h2>📋 ประวัติสัญญาณ AI</h2><div class="signal-list" id="signals"><div class="loading">กำลังโหลดข้อมูลจาก Binance...</div></div></div>
   <div class="chat-input"><input id="chatInput" placeholder="💬 ถาม AI"><button id="sendBtn">ส่ง</button></div>
   <div id="chatReply" style="margin:8px 12px 80px 12px;"></div>
 
   <script>
-    // ========== ตัวแปร ==========
-    let signals = [];
-    let lastAction = '';
-    let historicalData = { tf5m: [], tf15m: [], tf1h: [] };
+    // ========== CONFIG ==========
+    const DEEPSEEK_API_KEY = 'sk-72ecf7e919de4310933bf5e669feca4d';  // <--- ใส่ API Key ของคุณตรงนี้
+    const CORS_PROXY = 'https://cors-anywhere.herokuapp.com/';
+    const BINANCE_API = 'https://api.binance.com/api/v3/ticker/price?symbol=XAUUSDT';
     
-    // Twelve Data API Key (อันเดิมที่เคยใช้ได้)
-    const API_KEY = '0be46e7fd9994be88453962882bfb522';
+    let signals = [], lastAction = '';
+    let currentPrice = 0, currentRSI = 50;
+    let currentBias = { tf5m: 0, tf15m: 0, tf1h: 0 };
+    let priceHistory = [];
     
-    // ========== ดึงข้อมูลจาก Twelve Data ==========
-    async function fetchCandles(symbol, interval, output = 100) {
+    // ========== ดึงราคาจาก Binance ==========
+    async function fetchGoldPrice() {
       try {
-        const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=${interval}&outputsize=${output}&apikey=${API_KEY}`;
-        const res = await fetch(url);
+        const res = await fetch(`${CORS_PROXY}${BINANCE_API}`);
         const data = await res.json();
-        if (data && data.values) {
-          return data.values.map(v => ({
-            datetime: v.datetime,
-            open: parseFloat(v.open),
-            high: parseFloat(v.high),
-            low: parseFloat(v.low),
-            close: parseFloat(v.close)
-          })).reverse();
+        if (data && data.price) {
+          currentPrice = parseFloat(data.price);
+          document.getElementById('price').innerHTML = `$${currentPrice.toFixed(2)}`;
+          priceHistory.push(currentPrice);
+          if (priceHistory.length > 30) priceHistory.shift();
+          
+          if (priceHistory.length >= 15) {
+            let gains = 0, losses = 0;
+            for (let i = priceHistory.length-14; i < priceHistory.length; i++) {
+              const diff = priceHistory[i] - priceHistory[i-1];
+              if (diff >= 0) gains += diff;
+              else losses -= diff;
+            }
+            const avgGain = gains / 14, avgLoss = losses / 14;
+            if (avgLoss !== 0) currentRSI = 100 - (100 / (1 + avgGain / avgLoss));
+            else currentRSI = 100;
+            document.getElementById('rsi').innerHTML = Math.round(currentRSI);
+          }
+          return true;
         }
-        return [];
-      } catch(e) {
-        console.error('Fetch error:', e);
-        return [];
-      }
+        return false;
+      } catch(e) { return false; }
     }
     
-    // ========== โหลดข้อมูลทุก TF ==========
-    async function loadAllData() {
-      console.log('โหลดข้อมูลจาก Twelve Data...');
-      const [tf5m, tf15m, tf1h] = await Promise.all([
-        fetchCandles('XAU/USD', '5min', 100),
-        fetchCandles('XAU/USD', '15min', 80),
-        fetchCandles('XAU/USD', '1h', 80)
-      ]);
-      if (tf5m.length) historicalData.tf5m = tf5m;
-      if (tf15m.length) historicalData.tf15m = tf15m;
-      if (tf1h.length) historicalData.tf1h = tf1h;
-      console.log(`✅ โหลดสำเร็จ: 5m=${historicalData.tf5m.length}, 15m=${historicalData.tf15m.length}, 1h=${historicalData.tf1h.length}`);
-      return historicalData.tf5m.length > 0;
+    // ========== Bias ==========
+    function updateBias() {
+      if (priceHistory.length < 20) return;
+      const avg5 = priceHistory.slice(-5).reduce((a,b)=>a+b,0)/5;
+      const avg15 = priceHistory.slice(-15).reduce((a,b)=>a+b,0)/15;
+      const avg30 = priceHistory.slice(-30).reduce((a,b)=>a+b,0)/30;
+      currentBias.tf5m = avg5 > avg15 ? 1 : (avg5 < avg15 ? -1 : 0);
+      currentBias.tf15m = avg15 > avg30 ? 1 : (avg15 < avg30 ? -1 : 0);
+      currentBias.tf1h = avg15 > avg30 ? 1 : (avg15 < avg30 ? -1 : 0);
+      
+      const getText = (b) => b === 1 ? '▲ BULL' : b === -1 ? '▼ BEAR' : '● NEUTRAL';
+      const getClass = (b) => b === 1 ? 'bull' : b === -1 ? 'bear' : 'neutral';
+      document.getElementById('bias1h').innerHTML = getText(currentBias.tf1h);
+      document.getElementById('bias1h').className = `bias-value ${getClass(currentBias.tf1h)}`;
+      document.getElementById('bias15m').innerHTML = getText(currentBias.tf15m);
+      document.getElementById('bias15m').className = `bias-value ${getClass(currentBias.tf15m)}`;
+      document.getElementById('bias5m').innerHTML = getText(currentBias.tf5m);
+      document.getElementById('bias5m').className = `bias-value ${getClass(currentBias.tf5m)}`;
     }
     
-    // ========== SMC Functions ==========
-    function getBias(candles) {
-      if (!candles?.length) return 0;
-      const ema20 = candles.slice(-20).reduce((s, c) => s + c.close, 0) / 20;
-      return candles[candles.length-1].close > ema20 ? 1 : -1;
-    }
-    
-    function calcRSI(closes, period = 14) {
-      if (closes.length < period + 1) return 50;
-      let gains = 0, losses = 0;
-      for (let i = closes.length - period; i < closes.length; i++) {
-        const diff = closes[i] - closes[i-1];
-        if (diff >= 0) gains += diff;
-        else losses -= diff;
-      }
-      const avgGain = gains / period, avgLoss = losses / period;
-      if (avgLoss === 0) return 100;
-      return 100 - (100 / (1 + avgGain / avgLoss));
-    }
-    
-    function detectWick(candle) {
-      const range = candle.high - candle.low;
-      if (range === 0) return { isBull: false, isBear: false };
-      const body = Math.abs(candle.close - candle.open);
-      const lowerWick = Math.min(candle.open, candle.close) - candle.low;
-      const upperWick = candle.high - Math.max(candle.open, candle.close);
-      const isBull = (lowerWick/range) >= 0.65 && (body/range) <= 0.2 && candle.close >= candle.high - range*0.25;
-      const isBear = (upperWick/range) >= 0.65 && (body/range) <= 0.2 && candle.close <= candle.low + range*0.25;
-      return { isBull, isBear };
-    }
-    
-    function calculateScore(bias5m, bias15m, bias1h, wick, rsi) {
+    // ========== สัญญาณ ==========
+    function calculateSignal() {
       let bull = 0, bear = 0;
-      if (bias1h === 1) bull += 4; else if (bias1h === -1) bear += 4;
-      if (bias15m === 1) bull += 2; else if (bias15m === -1) bear += 2;
-      if (bias5m === 1) bull += 1; else if (bias5m === -1) bear += 1;
-      if (wick.isBull) bull += 4;
-      if (wick.isBear) bear += 4;
-      if (rsi < 30) bull += 3;
-      if (rsi > 70) bear += 3;
+      if (currentBias.tf1h === 1) bull += 4; else if (currentBias.tf1h === -1) bear += 4;
+      if (currentBias.tf15m === 1) bull += 2; else if (currentBias.tf15m === -1) bear += 2;
+      if (currentBias.tf5m === 1) bull += 1; else if (currentBias.tf5m === -1) bear += 1;
+      if (currentRSI < 35) bull += 3;
+      if (currentRSI > 65) bear += 3;
+      document.getElementById('bullScore').innerHTML = bull;
+      document.getElementById('bearScore').innerHTML = bear;
+      
       const net = bull - bear;
       let action = 'WAIT', conf = 50;
       if (net >= 5) { action = 'BUY'; conf = 70 + Math.min(25, net); }
       else if (net <= -5) { action = 'SELL'; conf = 70 + Math.min(25, -net); }
       else if (net >= 2) { action = 'BUY'; conf = 55 + net*3; }
       else if (net <= -2) { action = 'SELL'; conf = 55 + (-net)*3; }
-      return { action, confidence: Math.min(98, conf), bull, bear };
-    }
-    
-    // ========== อัปเดต UI ==========
-    let currentData = { price: 0, rsi: 50, bias: { tf5m: 0, tf15m: 0, tf1h: 0 }, action: 'WAIT', confidence: 50, bullScore: 0, bearScore: 0 };
-    
-    function updateFromLatestCandle() {
-      if (!historicalData.tf5m.length) return false;
-      
-      const latest = historicalData.tf5m[historicalData.tf5m.length-1];
-      const rsi = calcRSI(historicalData.tf5m.slice(-30).map(c => c.close));
-      const wick = detectWick(latest);
-      const bias5m = getBias(historicalData.tf5m);
-      const bias15m = getBias(historicalData.tf15m);
-      const bias1h = getBias(historicalData.tf1h);
-      const score = calculateScore(bias5m, bias15m, bias1h, wick, rsi);
-      
-      currentData = {
-        price: latest.close,
-        rsi: Math.round(rsi),
-        bias: { tf5m: bias5m, tf15m: bias15m, tf1h: bias1h },
-        action: score.action,
-        confidence: score.confidence,
-        bullScore: score.bull,
-        bearScore: score.bear
-      };
-      
-      // อัปเดต DOM
-      document.getElementById('price').innerHTML = `$${currentData.price.toFixed(2)}`;
-      document.getElementById('rsi').innerHTML = currentData.rsi;
-      document.getElementById('bullScore').innerHTML = currentData.bullScore;
-      document.getElementById('bearScore').innerHTML = currentData.bearScore;
       
       const actionEl = document.getElementById('action');
-      actionEl.innerHTML = `${currentData.action} (ความเชื่อมั่น ${currentData.confidence}%)`;
-      actionEl.className = `action ${currentData.action === 'BUY' ? 'buy' : currentData.action === 'SELL' ? 'sell' : 'wait'}`;
+      actionEl.innerHTML = `${action} (${conf}%)`;
+      actionEl.className = `action ${action === 'BUY' ? 'buy' : action === 'SELL' ? 'sell' : 'wait'}`;
       
-      const getText = (b) => b === 1 ? '▲ BULL' : b === -1 ? '▼ BEAR' : '● NEUTRAL';
-      const getClass = (b) => b === 1 ? 'bull' : b === -1 ? 'bear' : 'neutral';
-      
-      document.getElementById('bias1h').innerHTML = getText(currentData.bias.tf1h);
-      document.getElementById('bias1h').className = `bias-value ${getClass(currentData.bias.tf1h)}`;
-      document.getElementById('bias15m').innerHTML = getText(currentData.bias.tf15m);
-      document.getElementById('bias15m').className = `bias-value ${getClass(currentData.bias.tf15m)}`;
-      document.getElementById('bias5m').innerHTML = getText(currentData.bias.tf5m);
-      document.getElementById('bias5m').className = `bias-value ${getClass(currentData.bias.tf5m)}`;
-      
-      // บันทึกสัญญาณ
-      if (currentData.action !== 'WAIT' && currentData.action !== lastAction) {
+      if (action !== 'WAIT' && action !== lastAction && currentPrice > 0) {
         const time = new Date().toLocaleTimeString('th-TH');
-        signals.unshift({ time, action: currentData.action, price: currentData.price, confidence: currentData.confidence });
+        signals.unshift({ time, action, price: currentPrice, confidence: conf });
         if (signals.length > 20) signals.pop();
-        
         const container = document.getElementById('signals');
-        if (signals.length === 0) {
-          container.innerHTML = '<div class="loading">รอสัญญาณ...</div>';
-        } else {
-          container.innerHTML = signals.map(s => `
-            <div class="signal-item">
-              <span>🕐 ${s.time}</span>
-              <span style="color:${s.action === 'BUY' ? '#4ade80' : '#f87171'}">${s.action}</span>
-              <span>💰 $${s.price.toFixed(2)}</span>
-              <span>🎯 ${s.confidence}%</span>
-            </div>
-          `).join('');
-        }
-        lastAction = currentData.action;
-      }
-      return true;
-    }
-    
-    // ========== โหลดครั้งแรก และอัปเดตทุก 30 วินาที ==========
-    async function init() {
-      const success = await loadAllData();
-      if (success) {
-        updateFromLatestCandle();
-        setInterval(async () => {
-          await loadAllData();
-          updateFromLatestCandle();
-        }, 30000);
-      } else {
-        document.getElementById('signals').innerHTML = '<div class="loading">⚠️ ไม่สามารถเชื่อมต่อ Twelve Data API</div>';
+        container.innerHTML = signals.map(s => `<div class="signal-item"><span>🕐 ${s.time}</span><span style="color:${s.action === 'BUY' ? '#4ade80' : '#f87171'}">${s.action}</span><span>💰 $${s.price.toFixed(2)}</span><span>🎯 ${s.confidence}%</span></div>`).join('');
+        lastAction = action;
       }
     }
     
-    init();
+    async function updateAll() {
+      if (await fetchGoldPrice()) { updateBias(); calculateSignal(); }
+    }
     
-    // ========== AI Chat (OpenRouter ฟรี) ==========
+    // ========== DeepSeek AI จริง ==========
     document.getElementById('sendBtn').onclick = async () => {
       const msg = document.getElementById('chatInput').value.trim();
       if (!msg) return;
       document.getElementById('chatInput').value = '';
       document.getElementById('chatReply').innerHTML = '<div class="chat-reply">🤔 กำลังคิด...</div>';
       
-      const trend = currentData.bias.tf1h === 1 ? 'BULLISH ▲' : currentData.bias.tf1h === -1 ? 'BEARISH ▼' : 'NEUTRAL ●';
-      const prompt = `คุณคือผู้ช่วยเทรดทองคำ XAUUSD ข้อมูลปัจจุบัน: ราคา $${currentData.price}, แนวโน้ม 1ชม ${trend}, RSI ${currentData.rsi}. ตอบสั้น เป็นธรรมชาติ เป็นไทย: ${msg}`;
+      const trend = currentBias.tf1h === 1 ? 'BULLISH ▲' : currentBias.tf1h === -1 ? 'BEARISH ▼' : 'NEUTRAL ●';
       
       try {
-        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer sk-or-v1-9b2e4f7a1c3d5e8b0a6c4d2f8e1a7c9b3d5f7e9a1c4b6d8f0e2a4c6b8d0e2f4' },
-          body: JSON.stringify({ model: 'deepseek/deepseek-chat:free', messages: [{ role: 'user', content: prompt }] })
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${DEEPSEEK_API_KEY}` },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [
+              { role: 'system', content: `คุณคือผู้ช่วยเทรดทองคำ XAUUSDT ข้อมูล: ราคา $${currentPrice.toFixed(2)}, แนวโน้ม ${trend}, RSI ${Math.round(currentRSI)}. ตอบสั้น เป็นกันเอง เป็นไทย` },
+              { role: 'user', content: msg }
+            ],
+            temperature: 0.7,
+            max_tokens: 500
+          })
         });
         const data = await res.json();
-        document.getElementById('chatReply').innerHTML = `<div class="chat-reply">💬 ${data.choices?.[0]?.message?.content || 'ไม่สามารถตอบได้'}</div>`;
+        const reply = data.choices?.[0]?.message?.content || 'ไม่สามารถตอบได้';
+        document.getElementById('chatReply').innerHTML = `<div class="chat-reply">💬 ${reply}</div>`;
       } catch(e) {
-        document.getElementById('chatReply').innerHTML = `<div class="chat-reply">💬 📊 XAUUSD: ${trend} | RSI ${currentData.rsi}<br>💡 ${trend === 'BULLISH ▲' ? 'หาจังหวะ Buy' : 'หาจังหวะ Sell'}</div>`;
+        document.getElementById('chatReply').innerHTML = `<div class="chat-reply">💬 📊 XAUUSDT: $${currentPrice.toFixed(2)} | ${trend} | RSI ${Math.round(currentRSI)}<br>💡 ${trend === 'BULLISH ▲' ? 'หาจังหวะ Buy' : 'หาจังหวะ Sell'}</div>`;
       }
     };
+    
+    updateAll();
+    setInterval(updateAll, 5000);
   </script>
 </body>
 </html>
