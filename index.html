@@ -30,14 +30,14 @@
   </style>
 </head>
 <body>
-  <h1>🤖 AI Trading SMC Pro - XAUUSDT (ทองคำ) โดย Binance + DeepSeek</h1>
+  <h1>🤖 AI Trading SMC Pro - XAUUSDT (Binance + DeepSeek)</h1>
   <div class="card">
     <div class="price" id="price">$---</div>
     <div class="action wait" id="action">กำลังโหลด...</div>
     <div class="bias-container">
-      <div class="bias-item"><div class="bias-label">1 ชั่วโมง (เทรนด์)</div><div class="bias-value neutral" id="bias1h">-</div></div>
-      <div class="bias-item"><div class="bias-label">15 นาที (โครงสร้าง)</div><div class="bias-value neutral" id="bias15m">-</div></div>
-      <div class="bias-item"><div class="bias-label">5 นาที (เข้า)</div><div class="bias-value neutral" id="bias5m">-</div></div>
+      <div class="bias-item"><div class="bias-label">1 ชั่วโมง</div><div class="bias-value neutral" id="bias1h">-</div></div>
+      <div class="bias-item"><div class="bias-label">15 นาที</div><div class="bias-value neutral" id="bias15m">-</div></div>
+      <div class="bias-item"><div class="bias-label">5 นาที</div><div class="bias-value neutral" id="bias5m">-</div></div>
     </div>
     <div class="score-panel">
       <span>📊 RSI: <strong id="rsi">--</strong></span>
@@ -45,51 +45,76 @@
       <span>🔴 แรงขาย: <strong id="bearScore">0</strong></span>
     </div>
   </div>
-  <div class="card"><h2>📋 ประวัติสัญญาณ AI</h2><div class="signal-list" id="signals"><div class="loading">กำลังโหลดข้อมูลจาก Binance...</div></div></div>
+  <div class="card"><h2>📋 ประวัติสัญญาณ AI</h2><div class="signal-list" id="signals"><div class="loading">กำลังโหลด...</div></div></div>
   <div class="chat-input"><input id="chatInput" placeholder="💬 ถาม AI"><button id="sendBtn">ส่ง</button></div>
   <div id="chatReply" style="margin:8px 12px 80px 12px;"></div>
 
   <script>
-    // ========== CONFIG ==========
-    const DEEPSEEK_API_KEY = 'sk-72ecf7e919de4310933bf5e669feca4d';  // <--- ใส่ API Key ของคุณตรงนี้
-    const CORS_PROXY = 'https://cors-anywhere.herokuapp.com/';
-    const BINANCE_API = 'https://api.binance.com/api/v3/ticker/price?symbol=XAUUSDT';
+    const DEEPSEEK_API_KEY = 'sk-72ecf7e919de4310933bf5e669feca4d'; // ใส่ DeepSeek Key
     
     let signals = [], lastAction = '';
     let currentPrice = 0, currentRSI = 50;
     let currentBias = { tf5m: 0, tf15m: 0, tf1h: 0 };
     let priceHistory = [];
     
-    // ========== ดึงราคาจาก Binance ==========
-    async function fetchGoldPrice() {
-      try {
-        const res = await fetch(`${CORS_PROXY}${BINANCE_API}`);
-        const data = await res.json();
-        if (data && data.price) {
-          currentPrice = parseFloat(data.price);
-          document.getElementById('price').innerHTML = `$${currentPrice.toFixed(2)}`;
-          priceHistory.push(currentPrice);
-          if (priceHistory.length > 30) priceHistory.shift();
-          
-          if (priceHistory.length >= 15) {
-            let gains = 0, losses = 0;
-            for (let i = priceHistory.length-14; i < priceHistory.length; i++) {
-              const diff = priceHistory[i] - priceHistory[i-1];
-              if (diff >= 0) gains += diff;
-              else losses -= diff;
-            }
-            const avgGain = gains / 14, avgLoss = losses / 14;
-            if (avgLoss !== 0) currentRSI = 100 - (100 / (1 + avgGain / avgLoss));
-            else currentRSI = 100;
-            document.getElementById('rsi').innerHTML = Math.round(currentRSI);
+    // ========== ใช้ JSONP แทน Proxy (แก้ 403 แล้ว) ==========
+    function fetchGoldPrice() {
+      return new Promise((resolve, reject) => {
+        const callbackName = 'binanceCallback_' + Date.now();
+        const script = document.createElement('script');
+        
+        window[callbackName] = (data) => {
+          delete window[callbackName];
+          document.body.removeChild(script);
+          if (data && data.price) {
+            resolve(parseFloat(data.price));
+          } else {
+            reject('Invalid response');
           }
-          return true;
-        }
-        return false;
-      } catch(e) { return false; }
+        };
+        
+        script.src = `https://api.binance.com/api/v3/ticker/price?symbol=XAUUSDT&callback=${callbackName}`;
+        script.onerror = () => {
+          delete window[callbackName];
+          reject('Network error');
+        };
+        document.body.appendChild(script);
+        
+        setTimeout(() => {
+          delete window[callbackName];
+          reject('Timeout');
+        }, 8000);
+      });
     }
     
-    // ========== Bias ==========
+    async function updatePrice() {
+      try {
+        const price = await fetchGoldPrice();
+        currentPrice = price;
+        document.getElementById('price').innerHTML = `$${currentPrice.toFixed(2)}`;
+        priceHistory.push(currentPrice);
+        if (priceHistory.length > 30) priceHistory.shift();
+        
+        if (priceHistory.length >= 15) {
+          let gains = 0, losses = 0;
+          for (let i = priceHistory.length-14; i < priceHistory.length; i++) {
+            const diff = priceHistory[i] - priceHistory[i-1];
+            if (diff >= 0) gains += diff;
+            else losses -= diff;
+          }
+          const avgGain = gains / 14, avgLoss = losses / 14;
+          if (avgLoss !== 0) currentRSI = 100 - (100 / (1 + avgGain / avgLoss));
+          else currentRSI = 100;
+          document.getElementById('rsi').innerHTML = Math.round(currentRSI);
+        }
+        return true;
+      } catch(e) {
+        console.error('Price fetch error:', e);
+        document.getElementById('price').innerHTML = 'Binance Error';
+        return false;
+      }
+    }
+    
     function updateBias() {
       if (priceHistory.length < 20) return;
       const avg5 = priceHistory.slice(-5).reduce((a,b)=>a+b,0)/5;
@@ -109,7 +134,6 @@
       document.getElementById('bias5m').className = `bias-value ${getClass(currentBias.tf5m)}`;
     }
     
-    // ========== สัญญาณ ==========
     function calculateSignal() {
       let bull = 0, bear = 0;
       if (currentBias.tf1h === 1) bull += 4; else if (currentBias.tf1h === -1) bear += 4;
@@ -142,10 +166,10 @@
     }
     
     async function updateAll() {
-      if (await fetchGoldPrice()) { updateBias(); calculateSignal(); }
+      if (await updatePrice()) { updateBias(); calculateSignal(); }
     }
     
-    // ========== DeepSeek AI จริง ==========
+    // ========== DeepSeek AI ==========
     document.getElementById('sendBtn').onclick = async () => {
       const msg = document.getElementById('chatInput').value.trim();
       if (!msg) return;
