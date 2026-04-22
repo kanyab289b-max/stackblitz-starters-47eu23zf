@@ -3,180 +3,84 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>🤖 AI Trading SMC Pro - XAUUSDT (ทองคำ)</title>
+  <title>🤖 AI Trading SMC Pro - XAUUSDT</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
     body{font-family:system-ui;background:#0a0f1e;color:#e2e8f0;padding:16px;padding-bottom:120px;}
     .card{background:linear-gradient(135deg,#1e293b,#0f172a);border-radius:24px;padding:20px;margin-bottom:16px;border:1px solid #334155;}
-    .price{font-size:36px;font-weight:bold;color:#fbbf24;}
-    .action{font-size:28px;font-weight:bold;margin-top:8px;padding:12px;border-radius:16px;text-align:center;}
-    .buy{background:rgba(34,197,94,0.2);color:#4ade80;border:1px solid #4ade80;}
-    .sell{background:rgba(239,68,68,0.2);color:#f87171;border:1px solid #f87171;}
-    .wait{background:rgba(250,204,21,0.2);color:#facc15;border:1px solid #facc15;}
-    .bias-container{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px;}
-    .bias-item{text-align:center;padding:8px;background:#0f172a;border-radius:12px;}
-    .bias-label{font-size:12px;color:#94a3b8;}
-    .bias-value{font-size:20px;font-weight:bold;margin-top:4px;}
-    .bull{color:#4ade80;}.bear{color:#f87171;}.neutral{color:#94a3b8;}
-    .signal-list{max-height:300px;overflow-y:auto;}
-    .signal-item{border-bottom:1px solid #334155;padding:10px 0;display:flex;justify-content:space-between;}
-    .chat-input{position:fixed;bottom:0;left:0;right:0;background:#1e293b;padding:12px;border-top:1px solid #334155;display:flex;gap:8px;}
-    .chat-input input{flex:1;background:#0f172a;border:1px solid #334155;padding:12px 16px;border-radius:40px;color:white;}
-    .chat-input button{background:#3b82f6;border:none;padding:12px 24px;border-radius:40px;color:white;font-weight:bold;cursor:pointer;}
-    .chat-reply{margin-top:8px;background:#0f172a;padding:12px;border-radius:16px;border-left:3px solid #3b82f6;}
-    h1{text-align:center;margin-bottom:20px;color:#60a5fa;font-size:24px;}
-    .score-panel{display:flex;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid #334155;}
-    .loading{text-align:center;color:#94a3b8;padding:20px;}
+    .price{font-size:48px;font-weight:bold;color:#fbbf24;text-align:center;}
+    .status{font-size:14px;color:#94a3b8;text-align:center;margin-top:8px;}
+    button{background:#3b82f6;border:none;padding:12px 24px;border-radius:40px;color:white;font-weight:bold;cursor:pointer;}
+    input{background:#0f172a;border:1px solid #334155;padding:12px;border-radius:40px;color:white;width:80%;}
+    .chat-reply{background:#0f172a;padding:16px;border-radius:24px;margin-top:16px;}
+    h1{text-align:center;margin-bottom:20px;color:#60a5fa;}
   </style>
 </head>
 <body>
-  <h1>🤖 AI Trading SMC Pro - XAUUSDT (Binance + DeepSeek)</h1>
+  <h1>🤖 AI Trading SMC Pro - XAUUSDT</h1>
   <div class="card">
     <div class="price" id="price">$---</div>
-    <div class="action wait" id="action">กำลังโหลด...</div>
-    <div class="bias-container">
-      <div class="bias-item"><div class="bias-label">1 ชั่วโมง</div><div class="bias-value neutral" id="bias1h">-</div></div>
-      <div class="bias-item"><div class="bias-label">15 นาที</div><div class="bias-value neutral" id="bias15m">-</div></div>
-      <div class="bias-item"><div class="bias-label">5 นาที</div><div class="bias-value neutral" id="bias5m">-</div></div>
-    </div>
-    <div class="score-panel">
-      <span>📊 RSI: <strong id="rsi">--</strong></span>
-      <span>🟢 แรงซื้อ: <strong id="bullScore">0</strong></span>
-      <span>🔴 แรงขาย: <strong id="bearScore">0</strong></span>
-    </div>
+    <div class="status" id="status">กำลังเชื่อมต่อ...</div>
   </div>
-  <div class="card"><h2>📋 ประวัติสัญญาณ AI</h2><div class="signal-list" id="signals"><div class="loading">กำลังโหลด...</div></div></div>
-  <div class="chat-input"><input id="chatInput" placeholder="💬 ถาม AI"><button id="sendBtn">ส่ง</button></div>
+
+  <div class="card">
+    <h2>📋 ข้อมูลเรียลไทม์</h2>
+    <div id="info">รอข้อมูล...</div>
+  </div>
+
+  <div class="chat-input" style="position:fixed;bottom:0;left:0;right:0;background:#1e293b;padding:12px;display:flex;gap:8px;">
+    <input type="text" id="chatInput" placeholder="💬 ถาม AI">
+    <button id="sendBtn">ส่ง</button>
+  </div>
   <div id="chatReply" style="margin:8px 12px 80px 12px;"></div>
 
   <script>
-    const DEEPSEEK_API_KEY = 'sk-72ecf7e919de4310933bf5e669feca4d'; // ใส่ DeepSeek Key
-    
-    let signals = [], lastAction = '';
-    let currentPrice = 0, currentRSI = 50;
-    let currentBias = { tf5m: 0, tf15m: 0, tf1h: 0 };
+    let currentPrice = 0;
     let priceHistory = [];
-    
-    // ========== ใช้ JSONP แทน Proxy (แก้ 403 แล้ว) ==========
-    function fetchGoldPrice() {
-      return new Promise((resolve, reject) => {
-        const callbackName = 'binanceCallback_' + Date.now();
-        const script = document.createElement('script');
-        
-        window[callbackName] = (data) => {
-          delete window[callbackName];
-          document.body.removeChild(script);
-          if (data && data.price) {
-            resolve(parseFloat(data.price));
-          } else {
-            reject('Invalid response');
-          }
-        };
-        
-        script.src = `https://api.binance.com/api/v3/ticker/price?symbol=XAUUSDT&callback=${callbackName}`;
-        script.onerror = () => {
-          delete window[callbackName];
-          reject('Network error');
-        };
-        document.body.appendChild(script);
-        
-        setTimeout(() => {
-          delete window[callbackName];
-          reject('Timeout');
-        }, 8000);
-      });
-    }
-    
-    async function updatePrice() {
+
+    // ดึงราคาจาก Backend Proxy
+    async function fetchPrice() {
       try {
-        const price = await fetchGoldPrice();
-        currentPrice = price;
-        document.getElementById('price').innerHTML = `$${currentPrice.toFixed(2)}`;
-        priceHistory.push(currentPrice);
-        if (priceHistory.length > 30) priceHistory.shift();
-        
-        if (priceHistory.length >= 15) {
-          let gains = 0, losses = 0;
-          for (let i = priceHistory.length-14; i < priceHistory.length; i++) {
-            const diff = priceHistory[i] - priceHistory[i-1];
-            if (diff >= 0) gains += diff;
-            else losses -= diff;
+        const res = await fetch('/api/price');
+        const data = await res.json();
+        if (data.price) {
+          currentPrice = data.price;
+          document.getElementById('price').innerHTML = `$${currentPrice.toFixed(2)}`;
+          document.getElementById('status').innerHTML = `อัปเดตล่าสุด: ${new Date().toLocaleTimeString('th-TH')}`;
+          
+          priceHistory.push(currentPrice);
+          if (priceHistory.length > 30) priceHistory.shift();
+          
+          // คำนวณ RSI ง่ายๆ
+          if (priceHistory.length >= 14) {
+            let gains = 0, losses = 0;
+            for (let i = priceHistory.length-14; i < priceHistory.length; i++) {
+              const diff = priceHistory[i] - priceHistory[i-1];
+              if (diff >= 0) gains += diff;
+              else losses -= diff;
+            }
+            const avgGain = gains / 14;
+            const avgLoss = losses / 14;
+            const rsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+            document.getElementById('info').innerHTML = `📊 RSI: ${Math.round(rsi)} | ราคาเปลี่ยนแปลง: ${((priceHistory[priceHistory.length-1] - priceHistory[0]) / priceHistory[0] * 100).toFixed(2)}%`;
           }
-          const avgGain = gains / 14, avgLoss = losses / 14;
-          if (avgLoss !== 0) currentRSI = 100 - (100 / (1 + avgGain / avgLoss));
-          else currentRSI = 100;
-          document.getElementById('rsi').innerHTML = Math.round(currentRSI);
         }
-        return true;
       } catch(e) {
-        console.error('Price fetch error:', e);
-        document.getElementById('price').innerHTML = 'Binance Error';
-        return false;
+        document.getElementById('status').innerHTML = 'เชื่อมต่อไม่ได้';
       }
     }
-    
-    function updateBias() {
-      if (priceHistory.length < 20) return;
-      const avg5 = priceHistory.slice(-5).reduce((a,b)=>a+b,0)/5;
-      const avg15 = priceHistory.slice(-15).reduce((a,b)=>a+b,0)/15;
-      const avg30 = priceHistory.slice(-30).reduce((a,b)=>a+b,0)/30;
-      currentBias.tf5m = avg5 > avg15 ? 1 : (avg5 < avg15 ? -1 : 0);
-      currentBias.tf15m = avg15 > avg30 ? 1 : (avg15 < avg30 ? -1 : 0);
-      currentBias.tf1h = avg15 > avg30 ? 1 : (avg15 < avg30 ? -1 : 0);
-      
-      const getText = (b) => b === 1 ? '▲ BULL' : b === -1 ? '▼ BEAR' : '● NEUTRAL';
-      const getClass = (b) => b === 1 ? 'bull' : b === -1 ? 'bear' : 'neutral';
-      document.getElementById('bias1h').innerHTML = getText(currentBias.tf1h);
-      document.getElementById('bias1h').className = `bias-value ${getClass(currentBias.tf1h)}`;
-      document.getElementById('bias15m').innerHTML = getText(currentBias.tf15m);
-      document.getElementById('bias15m').className = `bias-value ${getClass(currentBias.tf15m)}`;
-      document.getElementById('bias5m').innerHTML = getText(currentBias.tf5m);
-      document.getElementById('bias5m').className = `bias-value ${getClass(currentBias.tf5m)}`;
-    }
-    
-    function calculateSignal() {
-      let bull = 0, bear = 0;
-      if (currentBias.tf1h === 1) bull += 4; else if (currentBias.tf1h === -1) bear += 4;
-      if (currentBias.tf15m === 1) bull += 2; else if (currentBias.tf15m === -1) bear += 2;
-      if (currentBias.tf5m === 1) bull += 1; else if (currentBias.tf5m === -1) bear += 1;
-      if (currentRSI < 35) bull += 3;
-      if (currentRSI > 65) bear += 3;
-      document.getElementById('bullScore').innerHTML = bull;
-      document.getElementById('bearScore').innerHTML = bear;
-      
-      const net = bull - bear;
-      let action = 'WAIT', conf = 50;
-      if (net >= 5) { action = 'BUY'; conf = 70 + Math.min(25, net); }
-      else if (net <= -5) { action = 'SELL'; conf = 70 + Math.min(25, -net); }
-      else if (net >= 2) { action = 'BUY'; conf = 55 + net*3; }
-      else if (net <= -2) { action = 'SELL'; conf = 55 + (-net)*3; }
-      
-      const actionEl = document.getElementById('action');
-      actionEl.innerHTML = `${action} (${conf}%)`;
-      actionEl.className = `action ${action === 'BUY' ? 'buy' : action === 'SELL' ? 'sell' : 'wait'}`;
-      
-      if (action !== 'WAIT' && action !== lastAction && currentPrice > 0) {
-        const time = new Date().toLocaleTimeString('th-TH');
-        signals.unshift({ time, action, price: currentPrice, confidence: conf });
-        if (signals.length > 20) signals.pop();
-        const container = document.getElementById('signals');
-        container.innerHTML = signals.map(s => `<div class="signal-item"><span>🕐 ${s.time}</span><span style="color:${s.action === 'BUY' ? '#4ade80' : '#f87171'}">${s.action}</span><span>💰 $${s.price.toFixed(2)}</span><span>🎯 ${s.confidence}%</span></div>`).join('');
-        lastAction = action;
-      }
-    }
-    
-    async function updateAll() {
-      if (await updatePrice()) { updateBias(); calculateSignal(); }
-    }
-    
-    // ========== DeepSeek AI ==========
+
+    fetchPrice();
+    setInterval(fetchPrice, 2000);
+
+    // AI Chat (DeepSeek)
+    const DEEPSEEK_API_KEY = 'YOUR_DEEPSEEK_KEY'; // ใส่ Key ของคุณ
+
     document.getElementById('sendBtn').onclick = async () => {
       const msg = document.getElementById('chatInput').value.trim();
       if (!msg) return;
       document.getElementById('chatInput').value = '';
       document.getElementById('chatReply').innerHTML = '<div class="chat-reply">🤔 กำลังคิด...</div>';
-      
-      const trend = currentBias.tf1h === 1 ? 'BULLISH ▲' : currentBias.tf1h === -1 ? 'BEARISH ▼' : 'NEUTRAL ●';
       
       try {
         const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -184,24 +88,18 @@
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${DEEPSEEK_API_KEY}` },
           body: JSON.stringify({
             model: 'deepseek-chat',
-            messages: [
-              { role: 'system', content: `คุณคือผู้ช่วยเทรดทองคำ XAUUSDT ข้อมูล: ราคา $${currentPrice.toFixed(2)}, แนวโน้ม ${trend}, RSI ${Math.round(currentRSI)}. ตอบสั้น เป็นกันเอง เป็นไทย` },
-              { role: 'user', content: msg }
-            ],
+            messages: [{ role: 'user', content: `คุณคือผู้ช่วยเทรดทองคำ XAUUSDT ราคาตอนนี้ $${currentPrice.toFixed(2)} ตอบสั้น เป็นไทย: ${msg}` }],
             temperature: 0.7,
-            max_tokens: 500
+            max_tokens: 300
           })
         });
         const data = await res.json();
         const reply = data.choices?.[0]?.message?.content || 'ไม่สามารถตอบได้';
         document.getElementById('chatReply').innerHTML = `<div class="chat-reply">💬 ${reply}</div>`;
       } catch(e) {
-        document.getElementById('chatReply').innerHTML = `<div class="chat-reply">💬 📊 XAUUSDT: $${currentPrice.toFixed(2)} | ${trend} | RSI ${Math.round(currentRSI)}<br>💡 ${trend === 'BULLISH ▲' ? 'หาจังหวะ Buy' : 'หาจังหวะ Sell'}</div>`;
+        document.getElementById('chatReply').innerHTML = `<div class="chat-reply">💬 ราคาทอง ${currentPrice.toFixed(2)} | ลองใหม่อีกครั้ง</div>`;
       }
     };
-    
-    updateAll();
-    setInterval(updateAll, 5000);
   </script>
 </body>
 </html>
