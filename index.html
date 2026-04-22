@@ -28,55 +28,38 @@
   </div>
 
   <script>
-    // ฟังก์ชันดึงราคาทองคำ (XAUUSD) จาก ExchangeRate.host
     async function fetchPrice() {
       try {
-        // ขั้นที่ 1: หาค่า USD → XAU (1 USD = กี่ออนซ์ทอง)
-        const res1 = await fetch('https://api.exchangerate.host/convert?from=USD&to=XAU&amount=1');
-        const data1 = await res1.json();
-        const xauPerUsd = data1.result; // เช่น 0.00034
-        
-        // ขั้นที่ 2: คำนวณราคาทองคำต่อออนซ์
-        const goldPrice = 1 / xauPerUsd;
-        
+        const res = await fetch('https://api.exchangerate.host/convert?from=USD&to=XAU&amount=1');
+        const data = await res.json();
+        const goldPrice = 1 / data.result;
         document.getElementById('price').innerHTML = `$${goldPrice.toFixed(2)}`;
-        document.getElementById('status').innerHTML = `อัปเดตล่าสุด: ${new Date().toLocaleTimeString('th-TH')}`;
+        document.getElementById('status').innerHTML = `อัปเดต: ${new Date().toLocaleTimeString('th-TH')}`;
       } catch(e) {
-        console.error(e);
         document.getElementById('price').innerHTML = 'เชื่อมต่อไม่ได้';
-        document.getElementById('status').innerHTML = 'ลองอีกครั้ง';
       }
     }
     
-    // ฟังก์ชัน AI Chat (ใช้ OpenRouter ฟรี)
     async function askAI() {
       const msg = document.getElementById('chatInput').value.trim();
       if(!msg) return;
       const replyDiv = document.getElementById('chatReply');
       replyDiv.innerHTML = '🤔 กำลังคิด...';
-      
       try {
         const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer sk-or-v1-9b2e4f7a1c3d5e8b0a6c4d2f8e1a7c9b3d5f7e9a1c4b6d8f0e2a4c6b8d0e2f4'
-          },
-          body: JSON.stringify({
-            model: 'deepseek/deepseek-chat:free',
-            messages: [{ role: 'user', content: `คุณคือผู้ช่วยเทรดทองคำ XAUUSD ตอบสั้น เป็นไทย ใช้คำพูดเป็นกันเอง: ${msg}` }]
-          })
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer sk-or-v1-9b2e4f7a1c3d5e8b0a6c4d2f8e1a7c9b3d5f7e9a1c4b6d8f0e2a4c6b8d0e2f4' },
+          body: JSON.stringify({ model: 'deepseek/deepseek-chat:free', messages: [{ role: 'user', content: `ตอบสั้น เป็นกันเอง เกี่ยวกับทองคำ XAUUSD: ${msg}` }] })
         });
         const data = await res.json();
         replyDiv.innerHTML = `💬 ${data.choices?.[0]?.message?.content || 'ไม่สามารถตอบได้'}`;
       } catch(e) {
-        replyDiv.innerHTML = '💬 AI ไม่ตอบชั่วคราว ลองใหม่ทีหลัง';
+        replyDiv.innerHTML = '💬 ลองใหม่ทีหลัง';
       }
     }
     
-    // โหลดราคาครั้งแรก และอัปเดตทุก 10 วินาที
     fetchPrice();
-    setInterval(fetchPrice, 10000);
+    setInterval(fetchPrice, 15000);
   </script>
 </body>
 </html>
