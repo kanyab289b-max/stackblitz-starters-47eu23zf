@@ -13,21 +13,17 @@ app.use(express.json());
 app.use(express.static('.'));
 
 // ========== CONFIG ==========
-const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY || '0be46e7fd9994be88453962882bfb522';
+const TWELVE_DATA_API_KEY = '0be46e7fd9994be88453962882bfb522';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
-const USE_DEEPSEEK = process.env.USE_DEEPSEEK !== 'false'; // ใส่ false ใน env เพื่อปิด
-
-console.log(`🤖 DeepSeek: ${USE_DEEPSEEK && DEEPSEEK_API_KEY ? 'ENABLED' : 'DISABLED (using mock)'}`);
 
 // ========== ตัวแปรข้อมูล ==========
 let cache = { tf5m: [], tf15m: [], tf1h: [] };
-let lastSentData = {};
 
-// ========== ดึงข้อมูลจาก Twelve Data (เร็วกว่า) ==========
+// ========== ดึงข้อมูล ==========
 async function fetchCandles(symbol, interval, output = 100) {
   try {
     const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=${interval}&outputsize=${output}&apikey=${TWELVE_DATA_API_KEY}`;
-    const res = await axios.get(url, { timeout: 5000 });
+    const res = await axios.get(url);
     if (res.data?.values) {
       return res.data.values.map(v => ({
         datetime: v.datetime,
@@ -38,10 +34,7 @@ async function fetchCandles(symbol, interval, output = 100) {
       })).reverse();
     }
     return [];
-  } catch(e) { 
-    console.log('Fetch error:', e.message);
-    return []; 
-  }
+  } catch(e) { return []; }
 }
 
 async function updateData() {
@@ -53,6 +46,7 @@ async function updateData() {
   if (tf5m.length) cache.tf5m = tf5m;
   if (tf15m.length) cache.tf15m = tf15m;
   if (tf1h.length) cache.tf1h = tf1h;
+  console.log(`Data: 5m=${cache.tf5m.length}, 15m=${cache.tf15m.length}, 1h=${cache.tf1h.length}`);
 }
 
 // ========== SMC Functions ==========
@@ -118,11 +112,9 @@ function calculateScore(bias5m, bias15m, bias1h, wick, rsi) {
   return { action, confidence: Math.min(98, conf), bull, bear };
 }
 
-// ========== WEBSOCKET (เร็วขึ้น 1 ครั้ง/วินาที) ==========
+// ========== WEBSOCKET ==========
 wss.on('connection', (ws) => {
-  console.log('✅ WebSocket connected (1s interval)');
-  let lastAction = '';
-  
+  console.log('WebSocket connected');
   const interval = setInterval(async () => {
     if (!cache.tf5m.length) return;
     const latest = cache.tf5m[cache.tf5m.length-1];
@@ -130,88 +122,46 @@ wss.on('connection', (ws) => {
     const wick = detectWick(latest, atr);
     const rsi = calcRSI(cache.tf5m.slice(-30).map(c => c.close));
     const score = calculateScore(getBias(cache.tf5m), getBias(cache.tf15m), getBias(cache.tf1h), wick, rsi);
-    
-    const data = {
-      price: latest.close,
-      rsi: Math.round(rsi),
-      bias: {
-        tf5m: getBias(cache.tf5m),
-        tf15m: getBias(cache.tf15m),
-        tf1h: getBias(cache.tf1h)
-      },
-      action: score.action,
-      confidence: score.confidence,
-      bullScore: score.bull,
-      bearScore: score.bear,
-      timestamp: Date.now()
-    };
-    
-    // ส่งข้อมูลทันที
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify(data));
-    }
-    
-    if (score.action !== 'WAIT' && score.action !== lastAction) {
-      lastAction = score.action;
-    }
-  }, 1000); // <- อัปเดตทุก 1 วินาที (เร็วขึ้น)
-  
+    ws.send(JSON.stringify({
+      price: latest.close, rsi: Math.round(rsi),
+      bias: { tf5m: getBias(cache.tf5m), tf15m: getBias(cache.tf15m), tf1h: getBias(cache.tf1h) },
+      action: score.action, confidence: score.confidence,
+      bullScore: score.bull, bearScore: score.bear
+    }));
+  }, 2000);
   ws.on('close', () => clearInterval(interval));
 });
 
-// ========== AI CHAT (DeepSeek จริง) ==========
+// ========== API CHAT (DeepSeek + Fallback) ==========
 app.post('/api/chat', async (req, res) => {
-  const { message, history } = req.body;
-  
-  // ถ้าไม่มี DeepSeek หรือปิดไว้ → ใช้ Mock
-  if (!USE_DEEPSEEK || !DEEPSEEK_API_KEY) {
-    const bias1h = getBias(cache.tf1h);
-    const trend = bias1h === 1 ? 'BULLISH ▲' : bias1h === -1 ? 'BEARISH ▼' : 'NEUTRAL ●';
-    return res.json({ reply: `🤖 [Mock] ${message}\n\nแนวโน้ม 1 ชั่วโมง: ${trend}\nแนะนำรอสัญญาณ SMC บนกราฟ 5 นาที` });
-  }
-  
-  // ดึงข้อมูลปัจจุบันสำหรับส่งให้ DeepSeek
+  const { message } = req.body;
   const bias1h = getBias(cache.tf1h);
-  const bias15m = getBias(cache.tf15m);
-  const bias5m = getBias(cache.tf5m);
-  const rsi = cache.tf5m.length ? calcRSI(cache.tf5m.slice(-30).map(c => c.close)) : 50;
-  const latestPrice = cache.tf5m.length ? cache.tf5m[cache.tf5m.length-1].close : 0;
   const trend = bias1h === 1 ? 'BULLISH ▲' : bias1h === -1 ? 'BEARISH ▼' : 'NEUTRAL ●';
+  const rsi = cache.tf5m.length ? calcRSI(cache.tf5m.slice(-30).map(c => c.close)) : 50;
   
-  const systemPrompt = `คุณคือผู้ช่วยเทรดทองคำ (XAUUSD) ที่เชี่ยวชาญ SMC (Smart Money Concepts) 
-ข้อมูลตลาดปัจจุบัน ณ เวลานี้:
-- ราคา: $${latestPrice}
-- แนวโน้ม 1 ชั่วโมง: ${trend}
-- Bias 15 นาที: ${bias15m === 1 ? 'BULL' : bias15m === -1 ? 'BEAR' : 'NEUTRAL'}
-- Bias 5 นาที: ${bias5m === 1 ? 'BULL' : bias5m === -1 ? 'BEAR' : 'NEUTRAL'}
-- RSI: ${Math.round(rsi)}
-
-ให้คำแนะนำอย่างมืออาชีพ ตอบสั้น ได้ใจความ เป็นภาษาไทย`;
-  
-  try {
-    const response = await axios.post('https://api.deepseek.com/v1/chat/completions', {
-      model: 'deepseek-chat',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: message }
-      ],
-      temperature: 0.7,
-      max_tokens: 500
-    }, {
-      headers: {
-        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 8000
-    });
-    
-    const reply = response.data.choices[0].message.content;
-    res.json({ reply });
-  } catch (error) {
-    console.error('DeepSeek error:', error.message);
-    // Fallback เมื่อ DeepSeek ล้มเหลว
-    res.json({ reply: `⚠️ DeepSeek ไม่ตอบชั่วคราว\n\n📊 XAUUSD: ${trend} | RSI ${Math.round(rsi)}\n💡 แนะนำ: ${trend === 'BULLISH ▲' ? 'หาจังหวะ Buy' : 'หาจังหวะ Sell'}` });
+  // ถ้ามี DeepSeek Key → เรียก API จริง
+  if (DEEPSEEK_API_KEY && DEEPSEEK_API_KEY.startsWith('sk-')) {
+    try {
+      const response = await axios.post('https://api.deepseek.com/v1/chat/completions', {
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: `คุณคือผู้ช่วยเทรดทองคำ (XAUUSD) ข้อมูลปัจจุบัน: แนวโน้ม 1ชม=${trend}, RSI=${Math.round(rsi)}` },
+          { role: 'user', content: message }
+        ],
+        temperature: 0.7,
+        max_tokens: 300
+      }, {
+        headers: { 'Authorization': `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
+        timeout: 8000
+      });
+      return res.json({ reply: response.data.choices[0].message.content });
+    } catch(e) {
+      console.log('DeepSeek error, using fallback');
+    }
   }
+  
+  // Fallback (Mock)
+  res.json({ reply: `📊 XAUUSD: ${trend} | RSI ${Math.round(rsi)}\n💡 แนะนำ: ${trend === 'BULLISH ▲' ? 'หาจังหวะ Buy' : 'หาจังหวะ Sell'}` });
 });
 
 app.get('/api/signals', (req, res) => res.json([]));
@@ -219,7 +169,7 @@ app.get('/api/signals', (req, res) => res.json([]));
 // ========== START ==========
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
-  console.log(`🚀 Server on port ${PORT}`);
+  console.log(`Server on port ${PORT}`);
   await updateData();
-  setInterval(updateData, 30000); // อัปเดต cache ทุก 30 วินาที
+  setInterval(updateData, 30000);
 });
