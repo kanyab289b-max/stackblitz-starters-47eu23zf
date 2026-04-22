@@ -26,13 +26,14 @@
     .chat-reply{margin-top:8px;background:#0f172a;padding:12px;border-radius:16px;border-left:3px solid #3b82f6;}
     h1{text-align:center;margin-bottom:20px;color:#60a5fa;font-size:24px;}
     .score-panel{display:flex;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid #334155;}
+    .loading{text-align:center;color:#94a3b8;padding:20px;}
   </style>
 </head>
 <body>
   <h1>🤖 AI Trading SMC Pro - XAUUSD (ทองคำ)</h1>
   <div class="card">
     <div class="price" id="price">$---</div>
-    <div class="action wait" id="action">กำลังเชื่อมต่อ...</div>
+    <div class="action wait" id="action">กำลังโหลด...</div>
     <div class="bias-container">
       <div class="bias-item"><div class="bias-label">1 ชั่วโมง</div><div class="bias-value neutral" id="bias1h">-</div></div>
       <div class="bias-item"><div class="bias-label">15 นาที</div><div class="bias-value neutral" id="bias15m">-</div></div>
@@ -44,28 +45,44 @@
       <span>🔴 แรงขาย: <strong id="bearScore">0</strong></span>
     </div>
   </div>
-  <div class="card"><h2>📋 ประวัติสัญญาณ</h2><div class="signal-list" id="signals"><div>กำลังเชื่อมต่อ WebSocket...</div></div></div>
+  <div class="card"><h2>📋 ประวัติสัญญาณ</h2><div class="signal-list" id="signals"><div class="loading">กำลังโหลดข้อมูล...</div></div></div>
   <div class="chat-input"><input id="chatInput" placeholder="💬 ถาม AI"><button id="sendBtn">ส่ง</button></div>
   <div id="chatReply" style="margin:8px 12px 80px 12px;"></div>
   <script>
-    function connectWS() {
-      const ws = new WebSocket(`wss://${window.location.host}/ws`);
-      ws.onmessage = e => {
-        const d = JSON.parse(e.data);
-        document.getElementById('price').innerHTML = `$${d.price.toFixed(2)}`;
-        const ae = document.getElementById('action');
-        ae.innerHTML = `${d.action} (${d.confidence}%)`;
-        ae.className = `action ${d.action==='BUY'?'buy':d.action==='SELL'?'sell':'wait'}`;
-        document.getElementById('bias1h').innerHTML = d.bias.tf1h===1?'▲ BULL':d.bias.tf1h===-1?'▼ BEAR':'● NEUTRAL';
-        document.getElementById('bias15m').innerHTML = d.bias.tf15m===1?'▲ BULL':d.bias.tf15m===-1?'▼ BEAR':'● NEUTRAL';
-        document.getElementById('bias5m').innerHTML = d.bias.tf5m===1?'▲ BULL':d.bias.tf5m===-1?'▼ BEAR':'● NEUTRAL';
-        document.getElementById('rsi').innerHTML = d.rsi;
-        document.getElementById('bullScore').innerHTML = d.bullScore;
-        document.getElementById('bearScore').innerHTML = d.bearScore;
-      };
-      ws.onclose = () => setTimeout(connectWS, 3000);
+    let signals = [], lastAction = '';
+    
+    async function fetchData() {
+      try {
+        const res = await fetch('/api/stream');
+        const data = await res.json();
+        if (data.price) {
+          document.getElementById('price').innerHTML = `$${data.price.toFixed(2)}`;
+          document.getElementById('rsi').innerHTML = data.rsi;
+          document.getElementById('bullScore').innerHTML = data.bullScore;
+          document.getElementById('bearScore').innerHTML = data.bearScore;
+          
+          const ae = document.getElementById('action');
+          ae.innerHTML = `${data.action} (${data.confidence}%)`;
+          ae.className = `action ${data.action==='BUY'?'buy':data.action==='SELL'?'sell':'wait'}`;
+          
+          document.getElementById('bias1h').innerHTML = data.bias?.tf1h === 1 ? '▲ BULL' : data.bias?.tf1h === -1 ? '▼ BEAR' : '● NEUTRAL';
+          document.getElementById('bias15m').innerHTML = data.bias?.tf15m === 1 ? '▲ BULL' : data.bias?.tf15m === -1 ? '▼ BEAR' : '● NEUTRAL';
+          document.getElementById('bias5m').innerHTML = data.bias?.tf5m === 1 ? '▲ BULL' : data.bias?.tf5m === -1 ? '▼ BEAR' : '● NEUTRAL';
+          
+          if (data.action !== 'WAIT' && data.action !== lastAction) {
+            signals.unshift({ time: new Date().toLocaleTimeString('th-TH'), action: data.action, price: data.price, conf: data.confidence });
+            if (signals.length > 20) signals.pop();
+            const container = document.getElementById('signals');
+            container.innerHTML = signals.map(s => `<div class="signal-item"><span>🕐 ${s.time}</span><span style="color:${s.action==='BUY'?'#4ade80':'#f87171'}">${s.action}</span><span>💰 $${s.price.toFixed(2)}</span><span>🎯 ${s.conf}%</span></div>`).join('');
+            lastAction = data.action;
+          }
+        }
+      } catch(e) { console.log('Fetch error:', e); }
     }
-    connectWS();
+    
+    fetchData();
+    setInterval(fetchData, 3000);
+    
     document.getElementById('sendBtn').onclick = async () => {
       const msg = document.getElementById('chatInput').value.trim();
       if(!msg) return;
