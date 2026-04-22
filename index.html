@@ -3,14 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>AI Trading SMC Pro - XAUUSD</title>
+  <title>🤖 AI Trading SMC Pro - XAUUSD</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
-    body{font-family:system-ui;background:#0a0f1e;color:#e2e8f0;padding:16px;padding-bottom:120px;text-align:center;}
+    body{font-family:system-ui;background:#0a0f1e;color:#e2e8f0;padding:16px;text-align:center;}
     .price{font-size:48px;font-weight:bold;color:#fbbf24;margin:20px 0;}
-    .status{font-size:20px;margin:10px 0;}
-    button{background:#3b82f6;border:none;padding:12px 24px;border-radius:40px;color:white;font-weight:bold;margin-top:20px;cursor:pointer;}
+    .status{font-size:14px;color:#94a3b8;margin:10px 0;}
+    button{background:#3b82f6;border:none;padding:12px 24px;border-radius:40px;color:white;font-weight:bold;margin:10px;cursor:pointer;}
     input{background:#0f172a;border:1px solid #334155;padding:12px;border-radius:40px;color:white;width:80%;margin:10px 0;}
+    .card{background:#1e293b;border-radius:24px;padding:20px;margin:20px 0;}
+    .chat-reply{background:#0f172a;padding:16px;border-radius:24px;margin-top:16px;text-align:left;}
   </style>
 </head>
 <body>
@@ -19,45 +21,60 @@
   <div class="status" id="status"></div>
   <button onclick="fetchPrice()">🔄 รีเฟรช</button>
   
-  <div style="margin-top:30px">
+  <div class="card">
     <input type="text" id="chatInput" placeholder="💬 ถาม AI เช่น เทรดทองตอนนี้ดีไหม">
     <button onclick="askAI()">ส่ง</button>
+    <div id="chatReply" class="chat-reply"></div>
   </div>
-  <div id="chatReply" style="margin-top:20px;background:#1e293b;padding:16px;border-radius:24px;"></div>
 
   <script>
+    // ฟังก์ชันดึงราคาทองคำ (XAUUSD) จาก ExchangeRate.host
     async function fetchPrice() {
       try {
-        const res = await fetch('https://api.twelvedata.com/price?symbol=XAU/USD&apikey=0be46e7fd9994be88453962882bfb522');
-        const data = await res.json();
-        document.getElementById('price').innerHTML = `$${data.price}`;
+        // ขั้นที่ 1: หาค่า USD → XAU (1 USD = กี่ออนซ์ทอง)
+        const res1 = await fetch('https://api.exchangerate.host/convert?from=USD&to=XAU&amount=1');
+        const data1 = await res1.json();
+        const xauPerUsd = data1.result; // เช่น 0.00034
+        
+        // ขั้นที่ 2: คำนวณราคาทองคำต่อออนซ์
+        const goldPrice = 1 / xauPerUsd;
+        
+        document.getElementById('price').innerHTML = `$${goldPrice.toFixed(2)}`;
         document.getElementById('status').innerHTML = `อัปเดตล่าสุด: ${new Date().toLocaleTimeString('th-TH')}`;
       } catch(e) {
+        console.error(e);
         document.getElementById('price').innerHTML = 'เชื่อมต่อไม่ได้';
+        document.getElementById('status').innerHTML = 'ลองอีกครั้ง';
       }
     }
     
+    // ฟังก์ชัน AI Chat (ใช้ OpenRouter ฟรี)
     async function askAI() {
       const msg = document.getElementById('chatInput').value.trim();
       if(!msg) return;
-      document.getElementById('chatReply').innerHTML = '🤔 กำลังคิด...';
+      const replyDiv = document.getElementById('chatReply');
+      replyDiv.innerHTML = '🤔 กำลังคิด...';
       
       try {
         const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer sk-or-v1-9b2e4f7a1c3d5e8b0a6c4d2f8e1a7c9b3d5f7e9a1c4b6d8f0e2a4c6b8d0e2f4' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer sk-or-v1-9b2e4f7a1c3d5e8b0a6c4d2f8e1a7c9b3d5f7e9a1c4b6d8f0e2a4c6b8d0e2f4'
+          },
           body: JSON.stringify({
             model: 'deepseek/deepseek-chat:free',
-            messages: [{ role: 'user', content: `คุณคือผู้ช่วยเทรดทองคำ XAUUSD ตอบสั้น เป็นไทย: ${msg}` }]
+            messages: [{ role: 'user', content: `คุณคือผู้ช่วยเทรดทองคำ XAUUSD ตอบสั้น เป็นไทย ใช้คำพูดเป็นกันเอง: ${msg}` }]
           })
         });
         const data = await res.json();
-        document.getElementById('chatReply').innerHTML = `💬 ${data.choices?.[0]?.message?.content || 'ไม่สามารถตอบได้'}`;
+        replyDiv.innerHTML = `💬 ${data.choices?.[0]?.message?.content || 'ไม่สามารถตอบได้'}`;
       } catch(e) {
-        document.getElementById('chatReply').innerHTML = '💬 AI ไม่ตอบชั่วคราว ลองใหม่ทีหลัง';
+        replyDiv.innerHTML = '💬 AI ไม่ตอบชั่วคราว ลองใหม่ทีหลัง';
       }
     }
     
+    // โหลดราคาครั้งแรก และอัปเดตทุก 10 วินาที
     fetchPrice();
     setInterval(fetchPrice, 10000);
   </script>
