@@ -1,20 +1,14 @@
 import express from 'express';
-import { WebSocketServer } from 'ws';
 import cors from 'cors';
-import { createServer } from 'http';
 import axios from 'axios';
 
 const app = express();
-const server = createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
-
 app.use(cors());
 app.use(express.json());
 app.use(express.static('.'));
 
-// ========== CONFIG ==========
+// ========== API KEY ==========
 const TWELVE_DATA_API_KEY = '0be46e7fd9994be88453962882bfb522';
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 
 // ========== ตัวแปรข้อมูล ==========
 let cache = { tf5m: [], tf15m: [], tf1h: [] };
@@ -34,7 +28,10 @@ async function fetchCandles(symbol, interval, output = 100) {
       })).reverse();
     }
     return [];
-  } catch(e) { return []; }
+  } catch(e) { 
+    console.log('Fetch error:', e.message);
+    return []; 
+  }
 }
 
 async function updateData() {
@@ -46,7 +43,7 @@ async function updateData() {
   if (tf5m.length) cache.tf5m = tf5m;
   if (tf15m.length) cache.tf15m = tf15m;
   if (tf1h.length) cache.tf1h = tf1h;
-  console.log(`Data: 5m=${cache.tf5m.length}, 15m=${cache.tf15m.length}, 1h=${cache.tf1h.length}`);
+  console.log(`✅ 5m:${cache.tf5m.length}, 15m:${cache.tf15m.length}, 1h:${cache.tf1h.length}`);
 }
 
 // ========== SMC Functions ==========
@@ -112,64 +109,47 @@ function calculateScore(bias5m, bias15m, bias1h, wick, rsi) {
   return { action, confidence: Math.min(98, conf), bull, bear };
 }
 
-// ========== WEBSOCKET ==========
-wss.on('connection', (ws) => {
-  console.log('WebSocket connected');
-  const interval = setInterval(async () => {
-    if (!cache.tf5m.length) return;
-    const latest = cache.tf5m[cache.tf5m.length-1];
-    const atr = calcATR(cache.tf5m);
-    const wick = detectWick(latest, atr);
-    const rsi = calcRSI(cache.tf5m.slice(-30).map(c => c.close));
-    const score = calculateScore(getBias(cache.tf5m), getBias(cache.tf15m), getBias(cache.tf1h), wick, rsi);
-    ws.send(JSON.stringify({
-      price: latest.close, rsi: Math.round(rsi),
-      bias: { tf5m: getBias(cache.tf5m), tf15m: getBias(cache.tf15m), tf1h: getBias(cache.tf1h) },
-      action: score.action, confidence: score.confidence,
-      bullScore: score.bull, bearScore: score.bear
-    }));
-  }, 2000);
-  ws.on('close', () => clearInterval(interval));
+// ========== API STREAM ==========
+app.get('/api/stream', (req, res) => {
+  if (!cache.tf5m.length) {
+    return res.json({ price: 0, action: 'WAIT', confidence: 0 });
+  }
+  const latest = cache.tf5m[cache.tf5m.length-1];
+  const atr = calcATR(cache.tf5m);
+  const wick = detectWick(latest, atr);
+  const rsi = calcRSI(cache.tf5m.slice(-30).map(c => c.close));
+  const score = calculateScore(getBias(cache.tf5m), getBias(cache.tf15m), getBias(cache.tf1h), wick, rsi);
+  
+  res.json({
+    price: latest.close,
+    rsi: Math.round(rsi),
+    bias: {
+      tf5m: getBias(cache.tf5m),
+      tf15m: getBias(cache.tf15m),
+      tf1h: getBias(cache.tf1h)
+    },
+    action: score.action,
+    confidence: score.confidence,
+    bullScore: score.bull,
+    bearScore: score.bear
+  });
 });
 
-// ========== API CHAT (DeepSeek + Fallback) ==========
-app.post('/api/chat', async (req, res) => {
+// ========== API CHAT ==========
+app.post('/api/chat', (req, res) => {
   const { message } = req.body;
   const bias1h = getBias(cache.tf1h);
   const trend = bias1h === 1 ? 'BULLISH ▲' : bias1h === -1 ? 'BEARISH ▼' : 'NEUTRAL ●';
   const rsi = cache.tf5m.length ? calcRSI(cache.tf5m.slice(-30).map(c => c.close)) : 50;
-  
-  // ถ้ามี DeepSeek Key → เรียก API จริง
-  if (DEEPSEEK_API_KEY && DEEPSEEK_API_KEY.startsWith('sk-')) {
-    try {
-      const response = await axios.post('https://api.deepseek.com/v1/chat/completions', {
-        model: 'deepseek-chat',
-        messages: [
-          { role: 'system', content: `คุณคือผู้ช่วยเทรดทองคำ (XAUUSD) ข้อมูลปัจจุบัน: แนวโน้ม 1ชม=${trend}, RSI=${Math.round(rsi)}` },
-          { role: 'user', content: message }
-        ],
-        temperature: 0.7,
-        max_tokens: 300
-      }, {
-        headers: { 'Authorization': `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
-        timeout: 8000
-      });
-      return res.json({ reply: response.data.choices[0].message.content });
-    } catch(e) {
-      console.log('DeepSeek error, using fallback');
-    }
-  }
-  
-  // Fallback (Mock)
-  res.json({ reply: `📊 XAUUSD: ${trend} | RSI ${Math.round(rsi)}\n💡 แนะนำ: ${trend === 'BULLISH ▲' ? 'หาจังหวะ Buy' : 'หาจังหวะ Sell'}` });
+  res.json({ reply: `🤖 AI: "${message}"\n\n📊 XAUUSD: ${trend} | RSI ${Math.round(rsi)}\n💡 แนะนำ: ${trend === 'BULLISH ▲' ? 'หาจังหวะ Buy' : 'หาจังหวะ Sell'}` });
 });
 
 app.get('/api/signals', (req, res) => res.json([]));
 
 // ========== START ==========
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, async () => {
-  console.log(`Server on port ${PORT}`);
+app.listen(PORT, async () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
   await updateData();
   setInterval(updateData, 30000);
 });
